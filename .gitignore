@@ -1,2 +1,5 @@
 *.egg
 *.egg-info
+/build
+/dist
+/version.txt
