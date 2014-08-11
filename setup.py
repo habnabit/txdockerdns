@@ -16,4 +16,5 @@ setup(
             'txdockerdns = txdockerdns:main',
         ],
     },
+    zip_safe=False,
 )
