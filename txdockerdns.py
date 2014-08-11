@@ -115,14 +115,11 @@ class DockerResolver(object):
 
     def _got_container(self, container):
         _, _, name = container['Name'].partition('/')
-        host = name + '.' + self.domain
+        host = (name + '.' + self.domain).lower()
         ip = container['NetworkSettings']['IPAddress']
         reverse_ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
-        self.responsible_for[host, dns.A] = dns.RRHeader(
-            name=host, type=dns.A, payload=dns.Record_A(ip), ttl=30, auth=True)
-        self.responsible_for[reverse_ip, dns.PTR] = dns.RRHeader(
-            name=reverse_ip, type=dns.PTR, payload=dns.Record_PTR(host),
-            ttl=30, auth=True)
+        self.responsible_for[host, dns.A] = dns.Record_A(ip)
+        self.responsible_for[reverse_ip, dns.PTR] = dns.Record_PTR(host)
         self.hosts_by_id[container['Id']] = [
             (host, dns.A), (reverse_ip, dns.PTR)]
 
@@ -135,10 +132,14 @@ class DockerResolver(object):
     event_stop = event_kill = event_die
 
     def query(self, query, timeout=None):
-        answer = self.responsible_for.get((query.name.name, query.type))
+        answer = self.responsible_for.get(
+            (query.name.name.lower(), query.type))
         if answer is None:
             return defer.fail(error.DomainError())
-        return defer.succeed(([answer], [], []))
+        answer_rr = dns.RRHeader(
+            name=query.name.name, type=query.type, payload=answer, auth=True,
+            ttl=30)
+        return defer.succeed(([answer_rr], [], []))
 
 
 def upstream(s):
