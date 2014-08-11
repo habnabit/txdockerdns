@@ -119,7 +119,7 @@ class DockerResolver(object):
         ip = container['NetworkSettings']['IPAddress']
         reverse_ip = '.'.join(reversed(ip.split('.'))) + '.in-addr.arpa'
         self.responsible_for[host, dns.A] = dns.RRHeader(
-            name=ip, type=dns.A, payload=dns.Record_A(ip), ttl=30, auth=True)
+            name=host, type=dns.A, payload=dns.Record_A(ip), ttl=30, auth=True)
         self.responsible_for[reverse_ip, dns.PTR] = dns.RRHeader(
             name=reverse_ip, type=dns.PTR, payload=dns.Record_PTR(host),
             ttl=30, auth=True)
