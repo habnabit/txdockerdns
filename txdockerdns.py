@@ -106,12 +106,17 @@ class DockerResolver(object):
             meth(ev)
 
     def event_start(self, ev):
-        d = self.client.request(('/containers/%(id)s/json' % ev).encode())
+        self._add_record_for_container(ev['id'].encode())
+
+    def _add_record_for_container(self, container_id):
+        d = self.client.request('/containers/%s/json' % (container_id,))
         d.addCallback(trap_http_status)
         d.addCallback(receive, StringReceiver())
         d.addCallback(json.loads)
         d.addCallback(self._got_container)
-        d.addErrback(log.err, 'error on starting container %(id)s' % ev)
+        d.addErrback(
+            log.err, 'error on adding a record for container %s' % (
+                container_id,))
 
     def _got_container(self, container):
         _, _, name = container['Name'].partition('/')
@@ -130,6 +135,18 @@ class DockerResolver(object):
             self.responsible_for.pop(record, None)
 
     event_stop = event_kill = event_die
+
+    def fetch_running_containers(self):
+        d = self.client.request('/containers/json')
+        d.addCallback(trap_http_status)
+        d.addCallback(receive, StringReceiver())
+        d.addCallback(json.loads)
+        d.addCallback(self._got_containers)
+        d.addErrback(log.err, 'error fetching running containers')
+
+    def _got_containers(self, containers):
+        for container in containers:
+            self._add_record_for_container(container['Id'].encode())
 
     def query(self, query, timeout=None):
         answer = self.responsible_for.get(
@@ -191,6 +208,7 @@ def twisted_main(reactor, args):
     factory = server.DNSServerFactory(clients=clients)
     protocol = dns.DNSDatagramProtocol(controller=factory)
     reactor.listenUDP(args.udp_port, protocol)
+    resolver.fetch_running_containers()
     return docker_client.run_events(resolver.got_event)
 
 
