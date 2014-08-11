@@ -149,14 +149,24 @@ class DockerResolver(object):
             self._add_record_for_container(container['Id'].encode())
 
     def query(self, query, timeout=None):
-        answer = self.responsible_for.get(
-            (query.name.name.lower(), query.type))
-        if answer is None:
+        answers = []
+        current_query = query
+        while True:
+            answer = self.responsible_for.get(
+                (current_query.name.name.lower(), query.type))
+            if answer is None:
+                break
+            answer_rr = dns.RRHeader(
+                name=current_query.name.name, type=answer.TYPE, payload=answer,
+                ttl=30)
+            answers.append(answer_rr)
+            if answer_rr.type != dns.CNAME:
+                break
+            current_query = answer
+
+        if not answers:
             return defer.fail(error.DomainError())
-        answer_rr = dns.RRHeader(
-            name=query.name.name, type=query.type, payload=answer, auth=True,
-            ttl=30)
-        return defer.succeed(([answer_rr], [], []))
+        return defer.succeed((answers, [], []))
 
 
 def upstream(s):
@@ -174,6 +184,16 @@ def upstream(s):
     return ret
 
 
+def dns_override(s):
+    parts = s.split(',')
+    host = parts[0]
+    query_type = getattr(dns, parts[1])
+    answer = parts[2]
+    answer_type_name = parts[3] if len(parts) > 3 else parts[1]
+    answer_type = getattr(dns, 'Record_' + answer_type_name)
+    return (host, query_type), answer_type(answer)
+
+
 def parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -188,6 +208,9 @@ def parse_args(args):
     parser.add_argument(
         '-t', '--upstream', type=upstream,
         help='upstream DNS server(s) to query')
+    parser.add_argument(
+        '-r', '--override', type=dns_override, default=[], action='append',
+        help='DNS query overrides to make')
     return parser.parse_args(args)
 
 
@@ -201,6 +224,9 @@ def twisted_main(reactor, args):
     docker_client = DockerClient(agent)
 
     resolver = DockerResolver(args.domain, docker_client)
+    for query, payload in args.override:
+        resolver.responsible_for[query] = payload
+
     clients = [resolver]
     if args.upstream:
         clients.append(client.Resolver(servers=args.upstream))
